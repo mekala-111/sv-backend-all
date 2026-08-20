@@ -1,0 +1,571 @@
+// SV LIVE Backend — Prisma schema (MySQL)
+// Tenant hierarchy: SUPER_ADMIN -> VENDOR -> CUSTOMER -> EVENT -> THEME/YOUTUBE/MEDIA -> PUBLIC EVENT
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// 1 & 2. AUTH + RBAC
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  VENDOR
+  CUSTOMER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+model User {
+  id             String     @id @default(uuid())
+  name           String
+  email          String     @unique
+  phone          String?    @unique
+  passwordHash   String     @map("password_hash")
+  role           UserRole
+  status         UserStatus @default(PENDING)
+  emailVerified  Boolean    @default(false) @map("email_verified")
+  phoneVerified  Boolean    @default(false) @map("phone_verified")
+  lastLogin      DateTime?  @map("last_login")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  vendor        Vendor?
+  customer      Customer?
+  refreshTokens RefreshToken[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  otpCodes      OtpCode[]
+  rolePermissions UserPermission[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+enum OtpPurpose {
+  LOGIN
+  PHONE_VERIFY
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model OtpCode {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  code      String
+  purpose   OtpPurpose
+  expiresAt DateTime   @map("expires_at")
+  consumed  Boolean    @default(false)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("otp_codes")
+}
+
+// Fine-grained permission catalogue (module.action), assignable per-role or ad hoc per-user
+model Permission {
+  id          String @id @default(uuid())
+  code        String @unique // e.g. "events.create"
+  module      String
+  description String?
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  role         UserRole
+  permissionId String     @map("permission_id")
+
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+  @@map("role_permissions")
+}
+
+// Optional per-user overrides (grant or revoke) on top of role defaults
+model UserPermission {
+  id           String  @id @default(uuid())
+  userId       String  @map("user_id")
+  permissionId String  @map("permission_id")
+  allow        Boolean @default(true)
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@map("user_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// 3. VENDOR
+// ---------------------------------------------------------------------------
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_APPROVAL
+}
+
+model Vendor {
+  id          String       @id @default(uuid())
+  userId      String       @unique @map("user_id")
+  companyName String       @map("company_name")
+  vendorCode  String       @unique @map("vendor_code")
+  logo        String?
+  phone       String?
+  email       String?
+  address     String?
+  status      VendorStatus @default(PENDING_APPROVAL)
+  planId      String?      @map("plan_id")
+  whatsappNumber  String?  @map("whatsapp_number")
+  whatsappEnabled Boolean  @default(false) @map("whatsapp_enabled")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customers       Customer[]
+  events          Event[]
+  vendorThemes    VendorTheme[]
+  youtubeChannels YoutubeChannel[]
+  wallet          VendorWallet?
+  payments        Payment[]
+
+  @@map("vendors")
+}
+
+// ---------------------------------------------------------------------------
+// 4. CUSTOMER
+// ---------------------------------------------------------------------------
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Customer {
+  id           String         @id @default(uuid())
+  userId       String         @unique @map("user_id")
+  vendorId     String         @map("vendor_id")
+  customerCode String         @unique @map("customer_code")
+  name         String
+  phone        String?
+  email        String?
+  status       CustomerStatus @default(ACTIVE)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  events Event[]
+  payments Payment[]
+
+  @@index([vendorId])
+  @@map("customers")
+}
+
+// ---------------------------------------------------------------------------
+// 5 & 6. EVENTS + EVENT LINK SYSTEM
+// ---------------------------------------------------------------------------
+
+enum EventStatus {
+  DRAFT
+  UPCOMING
+  LIVE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+model Event {
+  id               String      @id @default(uuid())
+  vendorId         String      @map("vendor_id")
+  customerId       String?     @map("customer_id")
+  eventCode        String      @unique @map("event_code")
+  eventSlug        String      @unique @map("event_slug")
+  eventName        String      @map("event_name")
+  eventType        String?     @map("event_type")
+  description      String?     @db.Text
+  eventDate        DateTime?   @map("event_date")
+  startTime        DateTime?   @map("start_time")
+  endTime          DateTime?   @map("end_time")
+  timezone         String?     @default("Asia/Kolkata")
+  location         String?
+  coverImage       String?     @map("cover_image")
+  pageTitle        String?     @map("page_title")
+  liveTiming       String?     @map("live_timing")
+  status           EventStatus @default(DRAFT)
+  themeId          String?     @map("theme_id")
+  youtubeChannelId String?     @map("youtube_channel_id")
+  youtubeVideoId   String?     @map("youtube_video_id")
+  youtubeLiveUrl   String?     @map("youtube_live_url")
+  isPublic         Boolean     @default(true) @map("is_public")
+  isPublished      Boolean     @default(false) @map("is_published")
+  publishedAt      DateTime?   @map("published_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  vendor         Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customer       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  theme          Theme?              @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  youtubeChannel YoutubeChannel?     @relation(fields: [youtubeChannelId], references: [id], onDelete: SetNull)
+  themeConfig    EventThemeConfig?
+  media          EventMedia[]
+  youtubeStreams YoutubeStream[]
+  access         EventAccess?
+  payments       Payment[]
+
+  @@index([vendorId])
+  @@index([customerId])
+  @@index([status])
+  @@map("events")
+}
+
+// ---------------------------------------------------------------------------
+// 7, 8, 9, 10. THEMES
+// ---------------------------------------------------------------------------
+
+enum ThemeStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+}
+
+model ThemeCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique // Wedding, Engagement, Birthday, Traditional, Devotional, Corporate, Concert, General
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  themes Theme[]
+
+  @@map("theme_categories")
+}
+
+model Theme {
+  id            String      @id @default(uuid())
+  name          String
+  slug          String      @unique
+  categoryId    String?     @map("category_id")
+  previewImage  String?     @map("preview_image")
+  config        Json        // { colors, typography, layout, hero, player, gallery, footer }
+  status        ThemeStatus @default(DRAFT)
+  createdBy     String?     @map("created_by")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  category     ThemeCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  vendorThemes VendorTheme[]
+  events       Event[]
+
+  @@map("themes")
+}
+
+model VendorTheme {
+  id        String  @id @default(uuid())
+  vendorId  String  @map("vendor_id")
+  themeId   String  @map("theme_id")
+  isEnabled Boolean @default(true) @map("is_enabled")
+  isDefault Boolean @default(false) @map("is_default")
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  theme  Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, themeId])
+  @@map("vendor_themes")
+}
+
+model EventThemeConfig {
+  id             String  @id @default(uuid())
+  eventId        String  @unique @map("event_id")
+  themeId        String  @map("theme_id")
+  primaryColor   String? @map("primary_color")
+  secondaryColor String? @map("secondary_color")
+  accentColor    String? @map("accent_color")
+  logo           String?
+  coverImage     String? @map("cover_image")
+  pageTitle      String? @map("page_title")
+  description    String? @db.Text
+  liveTiming     String? @map("live_timing")
+  customConfig   Json?   @map("custom_config")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_theme_config")
+}
+
+// ---------------------------------------------------------------------------
+// 11. EVENT MEDIA / GALLERY
+// ---------------------------------------------------------------------------
+
+enum MediaType {
+  COVER
+  GALLERY
+  TEASER
+  CUSTOM
+  LOGO
+  WHATSAPP
+}
+
+enum MediaStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model EventMedia {
+  id           String      @id @default(uuid())
+  eventId      String      @map("event_id")
+  type         MediaType
+  fileUrl      String      @map("file_url")
+  thumbnailUrl String?     @map("thumbnail_url")
+  sortOrder    Int         @default(0) @map("sort_order")
+  status       MediaStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("event_media")
+}
+
+// ---------------------------------------------------------------------------
+// 12, 13, 14, 15. YOUTUBE INTEGRATION
+// ---------------------------------------------------------------------------
+
+enum YoutubeChannelStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  TOKEN_EXPIRED
+}
+
+model YoutubeChannel {
+  id            String               @id @default(uuid())
+  vendorId      String               @map("vendor_id")
+  channelId     String               @map("channel_id")
+  channelName   String?              @map("channel_name")
+  accessToken   String               @db.Text @map("access_token")  // encrypted at rest (AES-256-GCM)
+  refreshToken  String               @db.Text @map("refresh_token") // encrypted at rest
+  tokenExpiry   DateTime?            @map("token_expiry")
+  status        YoutubeChannelStatus @default(CONNECTED)
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  vendor  Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  events  Event[]
+  streams YoutubeStream[]
+
+  @@unique([vendorId, channelId])
+  @@map("youtube_channels")
+}
+
+enum YoutubeStreamStatus {
+  CONNECTED
+  SCHEDULED
+  LIVE
+  ENDED
+  ERROR
+}
+
+model YoutubeStream {
+  id               String              @id @default(uuid())
+  eventId          String              @map("event_id")
+  youtubeChannelId String              @map("youtube_channel_id")
+  youtubeVideoId   String?             @map("youtube_video_id")
+  youtubeLiveUrl   String?             @map("youtube_live_url")
+  youtubeLiveKey   String?             @db.Text @map("youtube_live_key") // encrypted at rest
+  status           YoutubeStreamStatus @default(SCHEDULED)
+  scheduledAt      DateTime?           @map("scheduled_at")
+  startedAt        DateTime?           @map("started_at")
+  endedAt          DateTime?           @map("ended_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  youtubeChannel YoutubeChannel @relation(fields: [youtubeChannelId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@map("youtube_streams")
+}
+
+// ---------------------------------------------------------------------------
+// 18. EVENT PRIVACY / ACCESS
+// ---------------------------------------------------------------------------
+
+enum EventAccessType {
+  PUBLIC
+  PRIVATE
+}
+
+model EventAccess {
+  id           String          @id @default(uuid())
+  eventId      String          @unique @map("event_id")
+  accessType   EventAccessType @default(PUBLIC) @map("access_type")
+  passwordHash String?         @map("password_hash")
+  isEnabled    Boolean         @default(true) @map("is_enabled")
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_access")
+}
+
+// ---------------------------------------------------------------------------
+// 20. PAYMENTS
+// ---------------------------------------------------------------------------
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  vendorId              String?       @map("vendor_id")
+  customerId            String?       @map("customer_id")
+  eventId               String?       @map("event_id")
+  amount                Decimal       @db.Decimal(12, 2)
+  currency              String        @default("INR")
+  gateway               String        // e.g. "razorpay"
+  gatewayTransactionId  String?       @map("gateway_transaction_id")
+  status                PaymentStatus @default(PENDING)
+  paidAt                DateTime?     @map("paid_at")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  vendor   Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  event    Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// 21. WALLET
+// ---------------------------------------------------------------------------
+
+model VendorWallet {
+  id        String   @id @default(uuid())
+  vendorId  String   @unique @map("vendor_id")
+  balance   Decimal  @default(0) @db.Decimal(12, 2)
+  currency  String   @default("INR")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendor       Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("vendor_wallets")
+}
+
+enum WalletTxnType {
+  CREDIT
+  DEBIT
+  REFUND
+  ADJUSTMENT
+}
+
+model WalletTransaction {
+  id            String        @id @default(uuid())
+  walletId      String        @map("wallet_id")
+  type          WalletTxnType
+  amount        Decimal       @db.Decimal(12, 2)
+  referenceType String?       @map("reference_type") // e.g. "payment", "event"
+  referenceId   String?       @map("reference_id")
+  description   String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  wallet VendorWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@map("wallet_transactions")
+}
+
+// ---------------------------------------------------------------------------
+// 22. NOTIFICATIONS
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   // e.g. EVENT_CREATED, EVENT_PUBLISHED, YOUTUBE_CONNECTED, YOUTUBE_ERROR, EVENT_LIVE, PAYMENT_SUCCESS
+  title     String
+  message   String   @db.Text
+  data      Json?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// 23. AUDIT LOGS
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  userId     String?   @map("user_id")
+  role       UserRole?
+  action     String    // e.g. CREATE, UPDATE, DELETE, ENABLE, DISABLE, PUBLISH
+  module     String    // e.g. "vendor_theme_access"
+  entityType String?   @map("entity_type")
+  entityId   String?   @map("entity_id")
+  oldData    Json?     @map("old_data")
+  newData    Json?     @map("new_data")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([module])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// PLATFORM SETTINGS (key-value, for /api/settings)
+// ---------------------------------------------------------------------------
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
