@@ -6,7 +6,7 @@ async function main() {
   await connectMongo();
   const app = createApp();
 
-  const server = app.listen(env.port, () => {
+  const server = app.listen(env.port, "0.0.0.0", () => {
     // eslint-disable-next-line no-console
     console.log(`SV LIVE backend listening on port ${env.port} [${env.nodeEnv}]`);
   });

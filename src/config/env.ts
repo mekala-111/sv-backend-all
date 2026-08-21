@@ -1,5 +1,6 @@
+import path from "path";
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 function required(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
