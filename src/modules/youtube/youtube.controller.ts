@@ -250,10 +250,12 @@ export async function createStream(req: Request, res: Response) {
   const { eventId, youtubeChannelId, youtubeVideoId, youtubeLiveUrl, youtubeLiveKey, scheduledAt } = req.body;
 
   const event = await Event.findById(eventId);
-  if (!event || event.vendorId !== req.auth!.vendorId) throw ApiError.notFound("Event not found");
+  if (!event) throw ApiError.notFound("Event not found");
+  if (!isAdmin(req) && event.vendorId !== req.auth!.vendorId) throw ApiError.notFound("Event not found");
 
   const channel = await YoutubeChannel.findById(youtubeChannelId);
-  if (!channel || channel.vendorId !== req.auth!.vendorId) throw ApiError.notFound("YouTube channel not found");
+  if (!channel) throw ApiError.notFound("YouTube channel not found");
+  if (!isAdmin(req) && channel.vendorId !== req.auth!.vendorId) throw ApiError.notFound("YouTube channel not found");
 
   const stream = await YoutubeStream.create({
     eventId,

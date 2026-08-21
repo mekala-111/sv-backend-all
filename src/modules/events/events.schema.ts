@@ -88,6 +88,10 @@ const optionalDate = z.preprocess(
 );
 
 export const createEventSchema = z.object({
+  // Only actually used when the caller is SUPER_ADMIN/ADMIN (vendors/customers get their own
+  // vendorId from the auth token) — declared here so validateBody's schema.parse() doesn't
+  // strip it before the controller reads req.body.vendorId.
+  vendorId: optionalUuid,
   customerId: optionalUuid,
   eventName: z.string().min(2),
   eventType: optionalString,
@@ -97,8 +101,11 @@ export const createEventSchema = z.object({
   endTime: optionalDate,
   timezone: optionalString,
   location: optionalString,
+  googleMapsUrl: optionalUrl,
   coverImage: optionalCoverImage,
   pageTitle: optionalString,
+  metaTitle: optionalString,
+  metaDescription: optionalString,
   liveTiming: optionalString,
   themeId: optionalUuid,
   isPublic: z.boolean().optional(),

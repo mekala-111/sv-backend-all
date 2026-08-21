@@ -63,7 +63,48 @@ const THEME_CATEGORIES = [
   "Corporate",
   "Concert",
   "General",
+  "Legacy",
 ];
+
+/** Design names carried over from the legacy ASP.NET admin portal's "Design" dropdown. */
+const LEGACY_THEME_NAMES = [
+  "Join-Hands", "Blue-eLive", "Shiny-Red", "Special-Day", "Save-Date", "Live-Rose",
+  "FloralBlue", "NewMaroon", "BeachWedding", "WeddingPink", "Venue-Red", "NBW",
+  "HoldingHands", "BeachFloral", "Traditional", "SimpleDesign", "FluidMaroon",
+  "MaroonDualPlayer", "Jw", "HD", "Nbf", "ClipArt", "Invitation", "RosesBunch",
+  "PinkFloralBeach", "BeautifulVenue", "VioletFlowers", "Mr&Mrs", "WeddingSignBoard",
+  "CreamPlainBG", "HappyCouple", "SangeethNight", "GardenVenue", "LoveBirds",
+  "Sky-Sea-Sand", "LoveBirds-Floral", "ForEver", "ClipArt-Couple", "Classic",
+  "RoseCanvas", "White-Flowers", "Kings-Wedding", "Sky-Sea-Sand-2", "Beach-Floral-Arch",
+  "Rose-Canvas-2", "Mr&Mrs-2", "Wood-Canvas", "Greek-Wedding", "Mr&Mrs-Fancy",
+  "Garden-Venue", "Floral-Carpet-Sea", "Flower-Frame", "Kalasam", "KalasamInHands",
+  "Kalasam-Swastik", "WeddingKnot", "WeddingBells", "PoojaHomam", "Custom",
+  // NewStyle jumps 6 -> 8 in the legacy list (NewStyle7 never existed) — preserved as-is.
+  "NewStyle", "NewStyle2", "NewStyle3", "NewStyle4", "NewStyle5", "NewStyle6",
+  "NewStyle8", "NewStyle9", "NewStyle10", "NewStyle11", "NewStyle12", "DarkTheme",
+  "PublicEvent", "Bride-Groom", "Inv-1", "Theme-Sangeeth", "Snow-Theme", "Cenematic-Theme",
+];
+
+function legacyThemeSlug(name: string): string {
+  return (
+    "legacy-" +
+    name
+      .toLowerCase()
+      .replace(/&/g, "-")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+  );
+}
+
+/**
+ * The original per-design template assets aren't available, so every legacy theme shares
+ * one neutral placeholder palette — the point is preserving the selectable names, not the visuals.
+ */
+const LEGACY_THEME_CONFIG = {
+  layout: "legacy",
+  colors: { primary: "#8B6F47", secondary: "#F5F0E6", accent: "#C9A227", background: "#FBF8F2", text: "#3A3226" },
+  fontFamily: "Georgia, serif",
+};
 
 async function main() {
   await connectMongo();
@@ -158,7 +199,15 @@ async function main() {
       },
     },
   ];
-  for (const t of defaultThemes) {
+
+  const legacyThemes = LEGACY_THEME_NAMES.map((name) => ({
+    name,
+    slug: legacyThemeSlug(name),
+    category: "Legacy",
+    config: { ...LEGACY_THEME_CONFIG, legacyName: name },
+  }));
+
+  for (const t of [...defaultThemes, ...legacyThemes]) {
     await Theme.findOneAndUpdate(
       { slug: t.slug },
       {
