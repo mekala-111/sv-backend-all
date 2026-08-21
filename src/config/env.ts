@@ -11,8 +11,8 @@ function required(key: string, fallback?: string): string {
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  port: Number(process.env.PORT ?? 4000),
-  appBaseUrl: required("APP_BASE_URL", "http://localhost:4000"),
+  port: Number(process.env.PORT ?? 5161),
+  appBaseUrl: required("APP_BASE_URL", "http://localhost:5161"),
   publicEventBaseUrl: required("PUBLIC_EVENT_BASE_URL", "http://localhost:3000"),
   vendorPanelBaseUrl: required("VENDOR_PANEL_BASE_URL", "http://localhost:3000"),
 

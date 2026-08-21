@@ -28,7 +28,7 @@ URL-encode special characters in the password (`@` → `%40`, etc.).
 
 ```bash
 npm run seed     # permissions, theme categories, plans, super admin
-npm run dev      # http://localhost:4000
+npm run dev      # http://localhost:5161
 ```
 
 Default super admin: `admin@svlive.in` / `Admin@123`  
