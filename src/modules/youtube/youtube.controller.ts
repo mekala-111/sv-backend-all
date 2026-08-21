@@ -37,14 +37,17 @@ export async function listChannels(req: Request, res: Response) {
       },
     },
   ]);
-  const countsByChannel = new Map(
-    streamCounts.map((r: { _id: string; total: number; live: number }) => [r._id, { total: r.total, live: r.live }])
+  const countsByChannel = new Map<string, { total: number; live: number }>(
+    streamCounts.map((r: { _id: string; total: number; live: number }) => [
+      String(r._id),
+      { total: r.total, live: r.live },
+    ])
   );
 
   return ok(
     res,
     channels.map((c: Record<string, unknown> & { _id: string; vendorId: string }) => {
-      const counts = countsByChannel.get(c._id) ?? { total: 0, live: 0 };
+      const counts = countsByChannel.get(String(c._id)) ?? { total: 0, live: 0 };
       return {
         ...serialize(c),
         vendorName: vendorName.get(c.vendorId) ?? null,
@@ -197,15 +200,16 @@ export async function listStreams(req: Request, res: Response) {
   ]);
   const vendorName = new Map(vendors.map((v: { _id: string; companyName: string }) => [v._id, v.companyName]));
   const customerName = new Map(customers.map((c: { _id: string; name: string }) => [c._id, c.name]));
-  const channelById = new Map(
-    channels.map((c: { _id: string; channelName?: string | null; channelId: string }) => [c._id, c])
+  type ChannelLite = { _id: unknown; channelName?: string | null; channelId: string };
+  const channelById = new Map<string, ChannelLite>(
+    channels.map((c: ChannelLite) => [String(c._id), c])
   );
 
   return ok(
     res,
     streams.map((s: { eventId: string; youtubeChannelId: string } & Record<string, unknown>) => {
       const event = eventById.get(s.eventId);
-      const channel = channelById.get(s.youtubeChannelId);
+      const channel = channelById.get(String(s.youtubeChannelId));
       return {
         ...serialize(s),
         event: event
