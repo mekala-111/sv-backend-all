@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { UserRole } from "@prisma/client";
-import { prisma } from "../../config/prisma";
+import { UserRole, PaymentStatus } from "../../types/enums";
+import { Event, Payment, Vendor } from "../../models";
 import { ok } from "../../utils/apiResponse";
 import { authenticate } from "../../middleware/auth";
 import { requireRole } from "../../middleware/rbac";
@@ -8,30 +8,42 @@ import { attachTenantScope, vendorScopeWhere } from "../../middleware/tenantScop
 
 async function eventsSummary(req: Request, res: Response) {
   const where = vendorScopeWhere(req);
-  const grouped = await prisma.event.groupBy({ by: ["status"], where, _count: { _all: true } });
-  return ok(res, grouped.map((g) => ({ status: g.status, count: g._count._all })));
+  const grouped = await Event.aggregate([
+    { $match: where },
+    { $group: { _id: "$status", count: { $sum: 1 } } },
+  ]);
+  return ok(res, grouped.map((g: { _id: string; count: number }) => ({ status: g._id, count: g.count })));
 }
 
 async function revenueSummary(req: Request, res: Response) {
-  const where = { ...vendorScopeWhere(req), status: "SUCCESS" as const };
-  const result = await prisma.payment.aggregate({ where, _sum: { amount: true }, _count: { _all: true } });
-  return ok(res, { totalRevenue: result._sum.amount ?? 0, successfulPayments: result._count._all });
+  const where = { ...vendorScopeWhere(req), status: PaymentStatus.SUCCESS };
+  const result = await Payment.aggregate([
+    { $match: where },
+    { $group: { _id: null, totalRevenue: { $sum: "$amount" }, successfulPayments: { $sum: 1 } } },
+  ]);
+  return ok(res, {
+    totalRevenue: result[0]?.totalRevenue ?? 0,
+    successfulPayments: result[0]?.successfulPayments ?? 0,
+  });
 }
 
 async function topVendorsByEvents(_req: Request, res: Response) {
-  const grouped = await prisma.event.groupBy({
-    by: ["vendorId"],
-    _count: { _all: true },
-    orderBy: { _count: { vendorId: "desc" } },
-    take: 10,
-  });
-  const vendorIds = grouped.map((g) => g.vendorId);
-  const vendors = await prisma.vendor.findMany({ where: { id: { in: vendorIds } }, select: { id: true, companyName: true } });
-  const nameById = new Map(vendors.map((v) => [v.id, v.companyName]));
+  const grouped = await Event.aggregate([
+    { $group: { _id: "$vendorId", eventCount: { $sum: 1 } } },
+    { $sort: { eventCount: -1 } },
+    { $limit: 10 },
+  ]);
+  const vendorIds = grouped.map((g: { _id: string }) => g._id);
+  const vendors = await Vendor.find({ _id: { $in: vendorIds } }).select("companyName").lean();
+  const nameById = new Map(vendors.map((v: { _id: string; companyName: string }) => [v._id, v.companyName]));
 
   return ok(
     res,
-    grouped.map((g) => ({ vendorId: g.vendorId, companyName: nameById.get(g.vendorId), eventCount: g._count._all }))
+    grouped.map((g: { _id: string; eventCount: number }) => ({
+      vendorId: g._id,
+      companyName: nameById.get(g._id),
+      eventCount: g.eventCount,
+    }))
   );
 }
 

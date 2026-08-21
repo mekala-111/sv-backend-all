@@ -7,17 +7,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio",
-    "seed": "ts-node prisma/seed.ts"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node --transpile-only src/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.19.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -26,6 +18,7 @@
     "googleapis": "^140.0.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
     "morgan": "^1.10.0",
     "nanoid": "^3.3.7",
     "qrcode": "^1.5.4",
@@ -42,7 +35,6 @@
     "@types/node": "^20.14.15",
     "@types/qrcode": "^1.5.5",
     "@types/uuid": "^9.0.8",
-    "prisma": "^5.19.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4"

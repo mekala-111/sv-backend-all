@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { UserRole } from "@prisma/client";
+import { UserRole } from "../../types/enums";
 import * as controller from "./youtube.controller";
 import { authenticate, optionalAuthenticate } from "../../middleware/auth";
 import { requireRole } from "../../middleware/rbac";
 import { attachTenantScope } from "../../middleware/tenantScope";
 import { validateBody } from "../../middleware/validate";
-import { createStreamSchema } from "./youtube.schema";
+import { createStreamSchema, addChannelManualSchema } from "./youtube.schema";
 
 const router = Router();
 
@@ -14,7 +14,10 @@ router.get("/callback", optionalAuthenticate, controller.callback);
 
 router.use(authenticate, attachTenantScope, requireRole(UserRole.VENDOR, UserRole.SUPER_ADMIN, UserRole.ADMIN));
 
+router.get("/oauth-status", controller.oauthStatus);
 router.get("/channels", controller.listChannels);
+router.get("/channels/:id", controller.getChannel);
+router.post("/channels/manual", validateBody(addChannelManualSchema), controller.addChannelManual);
 router.post("/connect", controller.connect);
 router.post("/disconnect/:id", controller.disconnect);
 

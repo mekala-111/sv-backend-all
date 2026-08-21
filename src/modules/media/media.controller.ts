@@ -1,43 +1,51 @@
 import { Request, Response } from "express";
-import { prisma } from "../../config/prisma";
+import { Event, EventMedia } from "../../models";
 import { ApiError, created, ok } from "../../utils/apiResponse";
 import { assertOwnsVendorRecord } from "../../middleware/tenantScope";
+import { serialize, serializeMany } from "../../utils/serialize";
 
 export async function listMedia(req: Request, res: Response) {
-  const event = await prisma.event.findUnique({ where: { id: req.params.eventId } });
+  const event = await Event.findById(req.params.eventId);
   if (!event) throw ApiError.notFound();
   assertOwnsVendorRecord(req, event.vendorId);
 
-  const media = await prisma.eventMedia.findMany({ where: { eventId: event.id }, orderBy: { sortOrder: "asc" } });
-  return ok(res, media);
+  const media = await EventMedia.find({ eventId: event._id }).sort({ sortOrder: 1 }).lean();
+  return ok(res, serializeMany(media as Record<string, unknown>[]));
 }
 
 /** Registers an already-uploaded file (uploaded via a presigned S3 URL) against an event. */
 export async function addMedia(req: Request, res: Response) {
-  const event = await prisma.event.findUnique({ where: { id: req.params.eventId } });
+  const event = await Event.findById(req.params.eventId);
   if (!event) throw ApiError.notFound();
   assertOwnsVendorRecord(req, event.vendorId);
 
   const { type, fileUrl, thumbnailUrl, sortOrder } = req.body;
-  const media = await prisma.eventMedia.create({
-    data: { eventId: event.id, type, fileUrl, thumbnailUrl, sortOrder: sortOrder ?? 0 },
+  const media = await EventMedia.create({
+    eventId: event._id,
+    type,
+    fileUrl,
+    thumbnailUrl,
+    sortOrder: sortOrder ?? 0,
   });
 
   // Keep event.coverImage in sync for convenience when a COVER item is added.
   if (type === "COVER") {
-    await prisma.event.update({ where: { id: event.id }, data: { coverImage: fileUrl } });
+    event.coverImage = fileUrl;
+    await event.save();
   }
 
-  return created(res, media);
+  return created(res, media.toJSON());
 }
 
 export async function removeMedia(req: Request, res: Response) {
-  const media = await prisma.eventMedia.findUnique({ where: { id: req.params.id }, include: { event: true } });
+  const media = await EventMedia.findById(req.params.id);
   if (!media) throw ApiError.notFound();
-  assertOwnsVendorRecord(req, media.event.vendorId);
+  const event = await Event.findById(media.eventId);
+  if (!event) throw ApiError.notFound();
+  assertOwnsVendorRecord(req, event.vendorId);
 
-  await prisma.eventMedia.delete({ where: { id: media.id } });
-  return ok(res, { id: media.id });
+  await EventMedia.deleteOne({ _id: media._id });
+  return ok(res, { id: media._id });
 }
 
 /**

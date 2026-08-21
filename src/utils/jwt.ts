@@ -1,13 +1,19 @@
-import jwt, { SignOptions } from "jsonwebtoken";
-import { env } from "../config/env";
-import { UserRole } from "@prisma/client";
+import { UserRole } from "../types/enums";
 
 export interface AccessTokenPayload {
-  sub: string; // user id
+  sub: string;
   role: UserRole;
   vendorId?: string | null;
   customerId?: string | null;
 }
+
+export interface RefreshTokenPayload {
+  sub: string;
+  jti: string;
+}
+
+import jwt, { SignOptions } from "jsonwebtoken";
+import { env } from "../config/env";
 
 export function signAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, env.jwt.accessSecret, {
@@ -17,11 +23,6 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
   return jwt.verify(token, env.jwt.accessSecret) as AccessTokenPayload;
-}
-
-export interface RefreshTokenPayload {
-  sub: string;
-  jti: string; // maps to RefreshToken.id, allows revocation
 }
 
 export function signRefreshToken(payload: RefreshTokenPayload): string {

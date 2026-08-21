@@ -1,4 +1,4 @@
-import { prisma } from "../../config/prisma";
+import { Notification } from "../../models";
 
 /**
  * Fire-and-record a notification for a user. Types used across the app:
@@ -6,8 +6,12 @@ import { prisma } from "../../config/prisma";
  * EVENT_LIVE, PAYMENT_SUCCESSFUL.
  * Extend this to also push via FCM/SMS/email as needed — DB write stays the source of truth.
  */
-export async function createNotification(userId: string, type: string, title: string, message: string, data?: Record<string, unknown>) {
-  return prisma.notification.create({
-    data: { userId, type, title, message, data: data as any },
-  });
+export async function createNotification(
+  userId: string,
+  type: string,
+  title: string,
+  message: string,
+  data?: Record<string, unknown>
+) {
+  return Notification.create({ userId, type, title, message, data: data ?? null });
 }

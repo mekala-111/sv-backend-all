@@ -11,7 +11,7 @@ export async function login(req: Request, res: Response) {
   const { email, password } = req.body;
   const { user, accessToken, refreshToken } = await authService.login(email, password);
   return ok(res, {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: { id: String(user._id), name: user.name, email: user.email, role: user.role },
     accessToken,
     refreshToken,
   });

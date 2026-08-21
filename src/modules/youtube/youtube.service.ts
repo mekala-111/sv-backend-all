@@ -1,7 +1,8 @@
+import mongoose from "mongoose";
 import { google } from "googleapis";
-import { YoutubeStreamStatus } from "@prisma/client";
+import { YoutubeStreamStatus, YoutubeChannelStatus, EventStatus } from "../../types/enums";
 import { env } from "../../config/env";
-import { prisma } from "../../config/prisma";
+import { YoutubeChannel, YoutubeStream, Event } from "../../models";
 import { encryptSecret, decryptSecret } from "../../utils/crypto";
 import { ApiError } from "../../utils/apiResponse";
 
@@ -39,31 +40,29 @@ export async function handleOAuthCallback(code: string, vendorId: string) {
   const channel = channelsResponse.data.items?.[0];
   if (!channel?.id) throw ApiError.badRequest("No YouTube channel found for this Google account");
 
-  const record = await prisma.youtubeChannel.upsert({
-    where: { vendorId_channelId: { vendorId, channelId: channel.id } },
-    create: {
-      vendorId,
-      channelId: channel.id,
-      channelName: channel.snippet?.title ?? undefined,
-      accessToken: encryptSecret(tokens.access_token),
-      refreshToken: encryptSecret(tokens.refresh_token),
-      tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      status: "CONNECTED",
+  const record = await YoutubeChannel.findOneAndUpdate(
+    { vendorId, channelId: channel.id },
+    {
+      $set: {
+        channelName: channel.snippet?.title ?? undefined,
+        accessToken: encryptSecret(tokens.access_token),
+        refreshToken: encryptSecret(tokens.refresh_token),
+        tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        status: YoutubeChannelStatus.CONNECTED,
+      },
+      $setOnInsert: {
+        vendorId,
+        channelId: channel.id,
+      },
     },
-    update: {
-      channelName: channel.snippet?.title ?? undefined,
-      accessToken: encryptSecret(tokens.access_token),
-      refreshToken: encryptSecret(tokens.refresh_token),
-      tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      status: "CONNECTED",
-    },
-  });
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 
   return record;
 }
 
 async function authorizedClientFor(channelId: string) {
-  const channel = await prisma.youtubeChannel.findUnique({ where: { id: channelId } });
+  const channel = await YoutubeChannel.findById(channelId);
   if (!channel) throw ApiError.notFound("YouTube channel not connected");
 
   const client = oauthClient();
@@ -81,7 +80,7 @@ async function authorizedClientFor(channelId: string) {
     if (newTokens.refresh_token) data.refreshToken = encryptSecret(newTokens.refresh_token);
     if (newTokens.expiry_date) data.tokenExpiry = new Date(newTokens.expiry_date);
     if (Object.keys(data).length) {
-      await prisma.youtubeChannel.update({ where: { id: channel.id }, data });
+      await YoutubeChannel.findByIdAndUpdate(channel._id, data);
     }
   });
 
@@ -89,7 +88,7 @@ async function authorizedClientFor(channelId: string) {
 }
 
 export async function disconnectChannel(channelId: string) {
-  await prisma.youtubeChannel.update({ where: { id: channelId }, data: { status: "DISCONNECTED" } });
+  await YoutubeChannel.findByIdAndUpdate(channelId, { status: YoutubeChannelStatus.DISCONNECTED });
 }
 
 /**
@@ -98,50 +97,65 @@ export async function disconnectChannel(channelId: string) {
  * doc section 15 — this is what flips a public event page to "LIVE").
  */
 export async function syncStreamStatuses(eventId?: string) {
-  const streams = await prisma.youtubeStream.findMany({
-    where: {
-      eventId,
-      status: { in: [YoutubeStreamStatus.SCHEDULED, YoutubeStreamStatus.LIVE, YoutubeStreamStatus.CONNECTED] },
-    },
-    include: { youtubeChannel: true, event: true },
-  });
+  const filter: Record<string, unknown> = {
+    status: { $in: [YoutubeStreamStatus.SCHEDULED, YoutubeStreamStatus.LIVE, YoutubeStreamStatus.CONNECTED] },
+  };
+  if (eventId) filter.eventId = eventId;
 
+  const streams = await YoutubeStream.find(filter);
   const results = [];
+
   for (const stream of streams) {
     if (!stream.youtubeVideoId) continue;
+    const event = await Event.findById(stream.eventId);
+    if (!event) continue;
+
     try {
       const client = await authorizedClientFor(stream.youtubeChannelId);
       const youtube = google.youtube({ version: "v3", auth: client });
-      const response = await youtube.videos.list({ part: ["liveStreamingDetails", "status"], id: [stream.youtubeVideoId] });
+      const response = await youtube.videos.list({
+        part: ["liveStreamingDetails", "status"],
+        id: [stream.youtubeVideoId],
+      });
       const video = response.data.items?.[0];
       const lifeCycle = video?.status?.uploadStatus;
       const isLive = !!video?.liveStreamingDetails?.actualStartTime && !video?.liveStreamingDetails?.actualEndTime;
       const hasEnded = !!video?.liveStreamingDetails?.actualEndTime;
 
-      let status: YoutubeStreamStatus = stream.status;
+      let status: YoutubeStreamStatus = stream.status as YoutubeStreamStatus;
       if (isLive) status = YoutubeStreamStatus.LIVE;
       else if (hasEnded) status = YoutubeStreamStatus.ENDED;
       else if (lifeCycle === "failed" || lifeCycle === "rejected") status = YoutubeStreamStatus.ERROR;
 
-      await prisma.$transaction([
-        prisma.youtubeStream.update({
-          where: { id: stream.id },
-          data: {
-            status,
-            startedAt: video?.liveStreamingDetails?.actualStartTime ? new Date(video.liveStreamingDetails.actualStartTime) : stream.startedAt,
-            endedAt: video?.liveStreamingDetails?.actualEndTime ? new Date(video.liveStreamingDetails.actualEndTime) : stream.endedAt,
-          },
-        }),
-        prisma.event.update({
-          where: { id: stream.eventId },
-          data: { status: status === "LIVE" ? "LIVE" : status === "ENDED" ? "COMPLETED" : stream.event.status },
-        }),
-      ]);
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      try {
+        stream.status = status;
+        if (video?.liveStreamingDetails?.actualStartTime) {
+          stream.startedAt = new Date(video.liveStreamingDetails.actualStartTime);
+        }
+        if (video?.liveStreamingDetails?.actualEndTime) {
+          stream.endedAt = new Date(video.liveStreamingDetails.actualEndTime);
+        }
+        await stream.save({ session });
 
-      results.push({ streamId: stream.id, status });
+        if (status === YoutubeStreamStatus.LIVE) event.status = EventStatus.LIVE;
+        else if (status === YoutubeStreamStatus.ENDED) event.status = EventStatus.COMPLETED;
+        await event.save({ session });
+
+        await session.commitTransaction();
+      } catch (err) {
+        await session.abortTransaction();
+        throw err;
+      } finally {
+        session.endSession();
+      }
+
+      results.push({ streamId: stream._id, status });
     } catch (err) {
-      await prisma.youtubeStream.update({ where: { id: stream.id }, data: { status: YoutubeStreamStatus.ERROR } });
-      results.push({ streamId: stream.id, status: "ERROR", error: (err as Error).message });
+      stream.status = YoutubeStreamStatus.ERROR;
+      await stream.save();
+      results.push({ streamId: stream._id, status: "ERROR", error: (err as Error).message });
     }
   }
   return results;

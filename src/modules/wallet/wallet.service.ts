@@ -1,13 +1,26 @@
-import { WalletTxnType } from "@prisma/client";
-import { prisma } from "../../config/prisma";
+import mongoose from "mongoose";
+import { WalletTxnType } from "../../types/enums";
+import { VendorWallet, WalletTransaction, PlatformWallet, PlatformLedger } from "../../models";
 import { ApiError } from "../../utils/apiResponse";
 
-async function getOrCreateWallet(vendorId: string) {
-  return prisma.vendorWallet.upsert({
-    where: { vendorId },
-    create: { vendorId },
-    update: {},
-  });
+async function getOrCreateWallet(vendorId: string, session?: mongoose.ClientSession) {
+  const opts = session ? { session } : {};
+  let wallet = await VendorWallet.findOne({ vendorId }, null, opts);
+  if (!wallet) {
+    const created = await VendorWallet.create([{ vendorId }], opts);
+    wallet = created[0];
+  }
+  return wallet!;
+}
+
+async function getOrCreatePlatformWallet(session?: mongoose.ClientSession) {
+  const opts = session ? { session } : {};
+  let wallet = await PlatformWallet.findOne({ key: "PLATFORM" }, null, opts);
+  if (!wallet) {
+    const created = await PlatformWallet.create([{ key: "PLATFORM", balance: 0 }], opts);
+    wallet = created[0];
+  }
+  return wallet!;
 }
 
 /** Credits a vendor's wallet and writes a matching ledger row inside one transaction. */
@@ -20,17 +33,33 @@ export async function creditWallet(
 ) {
   if (amount <= 0) throw ApiError.badRequest("Credit amount must be positive");
 
-  return prisma.$transaction(async (tx) => {
-    const wallet = await tx.vendorWallet.upsert({ where: { vendorId }, create: { vendorId }, update: {} });
-    const updated = await tx.vendorWallet.update({
-      where: { id: wallet.id },
-      data: { balance: { increment: amount } },
-    });
-    await tx.walletTransaction.create({
-      data: { walletId: wallet.id, type: WalletTxnType.CREDIT, amount, referenceType, referenceId, description },
-    });
-    return updated;
-  });
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const wallet = await getOrCreateWallet(vendorId, session);
+    wallet.balance = Number(wallet.balance) + amount;
+    await wallet.save({ session });
+    await WalletTransaction.create(
+      [
+        {
+          walletId: wallet._id,
+          type: WalletTxnType.CREDIT,
+          amount,
+          referenceType,
+          referenceId,
+          description,
+        },
+      ],
+      { session }
+    );
+    await session.commitTransaction();
+    return wallet;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 }
 
 /** Debits a vendor's wallet — throws if the balance would go negative. */
@@ -43,28 +72,114 @@ export async function debitWallet(
 ) {
   if (amount <= 0) throw ApiError.badRequest("Debit amount must be positive");
 
-  return prisma.$transaction(async (tx) => {
-    const wallet = await getOrCreateWallet(vendorId);
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const wallet = await getOrCreateWallet(vendorId, session);
     if (Number(wallet.balance) < amount) throw ApiError.badRequest("Insufficient wallet balance");
 
-    const updated = await tx.vendorWallet.update({
-      where: { id: wallet.id },
-      data: { balance: { decrement: amount } },
-    });
-    await tx.walletTransaction.create({
-      data: { walletId: wallet.id, type: WalletTxnType.DEBIT, amount, referenceType, referenceId, description },
-    });
-    return updated;
-  });
+    wallet.balance = Number(wallet.balance) - amount;
+    await wallet.save({ session });
+    await WalletTransaction.create(
+      [
+        {
+          walletId: wallet._id,
+          type: WalletTxnType.DEBIT,
+          amount,
+          referenceType,
+          referenceId,
+          description,
+        },
+      ],
+      { session }
+    );
+    await session.commitTransaction();
+    return wallet;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 }
 
-export async function refundWallet(vendorId: string, amount: number, referenceType?: string, referenceId?: string, description?: string) {
-  return prisma.$transaction(async (tx) => {
-    const wallet = await getOrCreateWallet(vendorId);
-    const updated = await tx.vendorWallet.update({ where: { id: wallet.id }, data: { balance: { increment: amount } } });
-    await tx.walletTransaction.create({
-      data: { walletId: wallet.id, type: WalletTxnType.REFUND, amount, referenceType, referenceId, description },
-    });
-    return updated;
-  });
+export async function refundWallet(
+  vendorId: string,
+  amount: number,
+  referenceType?: string,
+  referenceId?: string,
+  description?: string
+) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const wallet = await getOrCreateWallet(vendorId, session);
+    wallet.balance = Number(wallet.balance) + amount;
+    await wallet.save({ session });
+    await WalletTransaction.create(
+      [
+        {
+          walletId: wallet._id,
+          type: WalletTxnType.REFUND,
+          amount,
+          referenceType,
+          referenceId,
+          description,
+        },
+      ],
+      { session }
+    );
+    await session.commitTransaction();
+    return wallet;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+}
+
+/** Credits the admin/platform wallet (event creation fees). */
+export async function creditPlatform(
+  amount: number,
+  opts: {
+    vendorId?: string;
+    referenceType?: string;
+    referenceId?: string;
+    description?: string;
+  } = {}
+) {
+  if (amount <= 0) throw ApiError.badRequest("Credit amount must be positive");
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const wallet = await getOrCreatePlatformWallet(session);
+    wallet.balance = Number(wallet.balance) + amount;
+    await wallet.save({ session });
+    await PlatformLedger.create(
+      [
+        {
+          type: WalletTxnType.CREDIT,
+          amount,
+          vendorId: opts.vendorId ?? null,
+          referenceType: opts.referenceType ?? null,
+          referenceId: opts.referenceId ?? null,
+          description: opts.description ?? null,
+        },
+      ],
+      { session }
+    );
+    await session.commitTransaction();
+    return wallet;
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
+}
+
+export async function getPlatformWallet() {
+  return getOrCreatePlatformWallet();
 }

@@ -3,8 +3,8 @@ import { z } from "zod";
 export const createThemeSchema = z.object({
   name: z.string().min(2),
   categoryId: z.string().uuid().optional(),
-  previewImage: z.string().url().optional(),
-  config: z.record(z.any()),
+  previewImage: z.string().optional(),
+  config: z.record(z.any()).default({}),
   status: z.enum(["ACTIVE", "INACTIVE", "DRAFT"]).optional(),
 });
 

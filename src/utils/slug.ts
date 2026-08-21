@@ -1,6 +1,6 @@
 import slugify from "slugify";
 import { nanoid } from "nanoid";
-import { prisma } from "../config/prisma";
+import { Event } from "../models";
 
 /**
  * Builds a unique, URL-safe event slug from the event name, e.g.
@@ -13,7 +13,7 @@ export async function generateUniqueEventSlug(eventName: string): Promise<string
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const existing = await prisma.event.findUnique({ where: { eventSlug: candidate } });
+    const existing = await Event.findOne({ eventSlug: candidate }).lean();
     if (!existing) return candidate;
     attempt += 1;
     candidate = `${base}-${nanoid(5).toLowerCase()}`;
@@ -29,5 +29,5 @@ export function generateCode(prefix: string): string {
 }
 
 export function buildPublicEventUrl(baseUrl: string, slug: string): string {
-  return `${baseUrl.replace(/\/$/, "")}/${slug}`;
+  return `${baseUrl.replace(/\/$/, "")}/event/${encodeURIComponent(slug)}`;
 }

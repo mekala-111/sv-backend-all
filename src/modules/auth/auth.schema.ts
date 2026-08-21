@@ -10,7 +10,7 @@ export const registerCustomerSchema = z.object({
   email: z.string().email(),
   phone: z.string().min(10).optional(),
   password: z.string().min(8),
-  vendorId: z.string().uuid(),
+  vendorId: z.string().min(1),
 });
 
 export const refreshSchema = z.object({

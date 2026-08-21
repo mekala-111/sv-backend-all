@@ -10,6 +10,8 @@ export const createVendorSchema = z.object({
   address: z.string().optional(),
   planId: z.string().optional(),
   whatsappNumber: z.string().optional(),
+  eventCreationFee: z.coerce.number().min(0).optional(),
+  initialWalletCredit: z.coerce.number().min(0).optional(),
 });
 
 export const updateVendorSchema = z.object({
@@ -22,4 +24,5 @@ export const updateVendorSchema = z.object({
   planId: z.string().optional(),
   whatsappNumber: z.string().optional(),
   whatsappEnabled: z.boolean().optional(),
+  eventCreationFee: z.coerce.number().min(0).optional(),
 });

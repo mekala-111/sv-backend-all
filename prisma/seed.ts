@@ -77,7 +77,7 @@ async function main() {
 
   console.log("Seeding super admin user...");
   const email = process.env.SEED_SUPER_ADMIN_EMAIL ?? "admin@svlive.in";
-  const password = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "ChangeMe123!";
+  const password = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "Admin@123";
   const existing = await prisma.user.findUnique({ where: { email } });
   if (!existing) {
     await prisma.user.create({

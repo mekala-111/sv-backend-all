@@ -1,36 +1,42 @@
 import { Router, Request, Response } from "express";
-import { UserRole } from "@prisma/client";
-import { prisma } from "../../config/prisma";
+import { UserRole } from "../../types/enums";
+import { VendorWallet, WalletTransaction } from "../../models";
 import { ok } from "../../utils/apiResponse";
 import { authenticate } from "../../middleware/auth";
 import { requireRole } from "../../middleware/rbac";
 import { attachTenantScope } from "../../middleware/tenantScope";
+import { serializeMany } from "../../utils/serialize";
 
 async function getBalance(req: Request, res: Response) {
   const vendorId = req.auth!.role === UserRole.VENDOR ? req.auth!.vendorId! : (req.params.vendorId as string);
-  const wallet = await prisma.vendorWallet.upsert({ where: { vendorId }, create: { vendorId }, update: {} });
-  return ok(res, wallet);
+  const wallet = await VendorWallet.findOneAndUpdate(
+    { vendorId },
+    { $setOnInsert: { vendorId } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  return ok(res, wallet.toJSON());
 }
 
 async function listTransactions(req: Request, res: Response) {
   const vendorId = req.auth!.role === UserRole.VENDOR ? req.auth!.vendorId! : (req.params.vendorId as string);
-  const wallet = await prisma.vendorWallet.findUnique({ where: { vendorId } });
+  const wallet = await VendorWallet.findOne({ vendorId }).lean();
   if (!wallet) return ok(res, []);
 
   const page = Math.max(1, Number(req.query.page ?? 1));
   const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
 
+  const filter = { walletId: wallet._id };
   const [items, total] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id },
-      skip: (page - 1) * limit,
-      take: limit,
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.walletTransaction.count({ where: { walletId: wallet.id } }),
+    WalletTransaction.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    WalletTransaction.countDocuments(filter),
   ]);
 
-  return ok(res, items, { page, limit, total, totalPages: Math.ceil(total / limit) });
+  return ok(res, serializeMany(items as Record<string, unknown>[]), {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  });
 }
 
 const router = Router();

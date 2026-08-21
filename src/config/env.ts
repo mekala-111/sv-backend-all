@@ -16,16 +16,22 @@ export const env = {
   publicEventBaseUrl: required("PUBLIC_EVENT_BASE_URL", "http://localhost:3000"),
   vendorPanelBaseUrl: required("VENDOR_PANEL_BASE_URL", "http://localhost:3000"),
 
-  databaseUrl: required("DATABASE_URL"),
+  mongodbUri: required(
+    "MONGODB_URI",
+    "mongodb+srv://venkey:<db_password>@sv-events.bmiefbg.mongodb.net/sv_live?retryWrites=true&w=majority&appName=SV-EVENTS"
+  ),
 
   jwt: {
-    accessSecret: required("JWT_ACCESS_SECRET"),
-    refreshSecret: required("JWT_REFRESH_SECRET"),
+    accessSecret: required("JWT_ACCESS_SECRET", "dev_access_secret_change_me_32chars_min"),
+    refreshSecret: required("JWT_REFRESH_SECRET", "dev_refresh_secret_change_me_32chars_min"),
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? "15m",
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? "30d",
   },
 
-  tokenEncryptionKey: required("TOKEN_ENCRYPTION_KEY"),
+  tokenEncryptionKey: required(
+    "TOKEN_ENCRYPTION_KEY",
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  ),
 
   otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES ?? 10),
 

@@ -1,8 +1,13 @@
 import { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
-import { Prisma } from "@prisma/client";
 import { ApiError } from "../utils/apiResponse";
 import { env } from "../config/env";
+
+function isMongoDuplicateKey(
+  err: unknown
+): err is { code: number; keyPattern?: Record<string, unknown>; keyValue?: Record<string, unknown> } {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === 11000;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
@@ -20,16 +25,15 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     });
   }
 
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    if (err.code === "P2002") {
-      return res.status(409).json({
-        success: false,
-        error: { code: "UNIQUE_CONSTRAINT", message: `Duplicate value for: ${(err.meta?.target as string[])?.join(", ")}` },
-      });
-    }
-    if (err.code === "P2025") {
-      return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Record not found" } });
-    }
+  if (isMongoDuplicateKey(err)) {
+    const fields = Object.keys(err.keyPattern ?? err.keyValue ?? {});
+    return res.status(409).json({
+      success: false,
+      error: {
+        code: "UNIQUE_CONSTRAINT",
+        message: `Duplicate value for: ${fields.join(", ") || "unique field"}`,
+      },
+    });
   }
 
   // eslint-disable-next-line no-console

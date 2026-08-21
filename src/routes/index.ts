@@ -14,6 +14,9 @@ import notificationsRoutes from "../modules/notifications/notifications.routes";
 import reportsRoutes from "../modules/reports/reports.routes";
 import settingsRoutes from "../modules/settings/settings.routes";
 import publicRoutes from "../modules/public/public.routes";
+import plansRoutes, { vendorPricingRouter } from "../modules/plans/plans.routes";
+import supportRoutes from "../modules/support/support.routes";
+import recordingsRoutes from "../modules/recordings/recordings.routes";
 
 const router = Router();
 
@@ -30,6 +33,10 @@ router.use("/wallet", walletRoutes);
 router.use("/notifications", notificationsRoutes);
 router.use("/reports", reportsRoutes);
 router.use("/settings", settingsRoutes);
+router.use("/plans", plansRoutes);
+router.use("/vendor", vendorPricingRouter);
+router.use("/support", supportRoutes);
+router.use("/recordings", recordingsRoutes);
 router.use("/public", publicRoutes); // unauthenticated — consumed by the viewer website
 
 export default router;

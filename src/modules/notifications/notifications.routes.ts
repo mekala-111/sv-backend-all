@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
-import { prisma } from "../../config/prisma";
+import { Notification } from "../../models";
 import { ApiError, ok } from "../../utils/apiResponse";
 import { authenticate } from "../../middleware/auth";
+import { serializeMany } from "../../utils/serialize";
 
 async function listMyNotifications(req: Request, res: Response) {
   const page = Math.max(1, Number(req.query.page ?? 1));
@@ -11,24 +12,31 @@ async function listMyNotifications(req: Request, res: Response) {
   const where = { userId: req.auth!.userId, ...(unreadOnly ? { isRead: false } : {}) };
 
   const [items, total, unreadCount] = await Promise.all([
-    prisma.notification.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: "desc" } }),
-    prisma.notification.count({ where }),
-    prisma.notification.count({ where: { userId: req.auth!.userId, isRead: false } }),
+    Notification.find(where).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Notification.countDocuments(where),
+    Notification.countDocuments({ userId: req.auth!.userId, isRead: false }),
   ]);
 
-  return ok(res, items, { page, limit, total, totalPages: Math.ceil(total / limit), unreadCount });
+  return ok(res, serializeMany(items as Record<string, unknown>[]), {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    unreadCount,
+  });
 }
 
 async function markRead(req: Request, res: Response) {
-  const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
+  const notification = await Notification.findById(req.params.id);
   if (!notification || notification.userId !== req.auth!.userId) throw ApiError.notFound();
 
-  const updated = await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } });
-  return ok(res, updated);
+  notification.isRead = true;
+  await notification.save();
+  return ok(res, notification.toJSON());
 }
 
 async function markAllRead(req: Request, res: Response) {
-  await prisma.notification.updateMany({ where: { userId: req.auth!.userId, isRead: false }, data: { isRead: true } });
+  await Notification.updateMany({ userId: req.auth!.userId, isRead: false }, { isRead: true });
   return ok(res, { updated: true });
 }
 

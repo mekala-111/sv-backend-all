@@ -1,95 +1,94 @@
 # SV LIVE Backend
 
-Multi-tenant backend for SV LIVE — a YouTube-based event live-streaming platform.
+Multi-tenant backend for SV LIVE — YouTube-based event live-streaming.
+
 Hierarchy: **Super Admin → Vendor → Customer → Event → Theme / YouTube / Media → Public Viewer**.
 
-Stack: Node.js + Express + TypeScript + MySQL + Prisma + JWT auth + Google (YouTube) OAuth.
+Stack: **Node.js + Express + TypeScript + MongoDB (Mongoose) + JWT + Google (YouTube) OAuth**.
 
 ## 1. Setup
 
 ```bash
 npm install
 cp .env.example .env
-# Edit .env: DATABASE_URL, JWT secrets, TOKEN_ENCRYPTION_KEY, YouTube OAuth creds, etc.
+# Edit .env:
+#   MONGODB_URI — replace <db_password> with your Atlas password
+#   JWT secrets, TOKEN_ENCRYPTION_KEY, YouTube OAuth, etc.
 ```
 
-Generate a strong `TOKEN_ENCRYPTION_KEY` (used to encrypt YouTube OAuth tokens at rest):
+MongoDB Atlas example:
+
+```
+MONGODB_URI=mongodb+srv://venkey:YOUR_PASSWORD@sv-events.bmiefbg.mongodb.net/sv_live?retryWrites=true&w=majority&appName=SV-EVENTS
+```
+
+URL-encode special characters in the password (`@` → `%40`, etc.).
+
+## 2. Seed & run
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+npm run seed     # permissions, theme categories, plans, super admin
+npm run dev      # http://localhost:4000
 ```
 
-Generate JWT secrets the same way (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`).
+Default super admin: `admin@svlive.in` / `Admin@123`  
+With `SEED_DEMO_DATA=true`: demo vendor `demo-vendor@svlive.in` / `DemoPass123!`
 
-## 2. Database
+Health: `GET /health`
 
-Create a MySQL database, point `DATABASE_URL` at it, then:
+## 3. API modules
 
-```bash
-npx prisma generate        # generate the Prisma client (needs network access to Prisma's binary CDN)
-npx prisma migrate dev --name init
-npm run seed                # permission catalogue, theme categories, super admin user
+| Prefix | Who | Purpose |
+|--------|-----|---------|
+| `/api/auth` | All | Login, refresh, OTP, password reset, customer register |
+| `/api/admin` | Admin | Overview, analytics, audit logs, permissions, users, bookings |
+| `/api/vendors` | Admin + Vendor | CRUD + `/me`, dashboard, branding |
+| `/api/customers` | Admin + Vendor | Tenant-scoped customers |
+| `/api/events` | Admin + Vendor (+ Customer) | Lifecycle, publish, theme-config, access, recording |
+| `/api/themes` | Admin + Vendor | Themes, categories, vendor assign |
+| `/api/youtube` | Vendor | OAuth connect, streams, sync |
+| `/api/media` | Vendor | Upload URL + event gallery |
+| `/api/payments` | Admin + Vendor | Payments + Razorpay webhook |
+| `/api/wallet` | Admin + Vendor | Balance + ledger |
+| `/api/plans` | Admin + Vendor | Platform plans; `/api/vendor/pricing` price list |
+| `/api/support` | Admin + Vendor | Support tickets |
+| `/api/recordings` | Admin + Vendor | Event recordings |
+| `/api/notifications` | Auth | In-app notifications |
+| `/api/reports` | Admin + Vendor | Events / revenue summaries |
+| `/api/settings` | Admin | Platform key-value settings |
+| `/api/public` | Anyone | Event by slug, unlock, share/QR, bookings, contact, pricing |
+
+### Public event (viewer)
+
 ```
-
-The seed script prints the super admin's login (`admin@svlive.in` / a generated password unless
-`SEED_SUPER_ADMIN_EMAIL` / `SEED_SUPER_ADMIN_PASSWORD` are set) — **rotate this password immediately**
-after first login. Set `SEED_DEMO_DATA=true` to also seed a demo vendor for local testing.
-
-## 3. Run
-
-```bash
-npm run dev     # ts-node-dev, hot reload
-npm run build && npm start   # production
+GET  /api/public/events/:slug
+POST /api/public/events/:slug/unlock
+GET  /api/public/events/:slug/media
+GET  /api/public/events/:slug/theme
+GET  /api/public/events/:slug/share
+GET  /api/public/events
+GET  /api/public/watch/:eventCode
+POST /api/public/bookings
+POST /api/public/contact
+GET  /api/public/pricing
 ```
-
-Health check: `GET /health`
 
 ## 4. Architecture notes
 
-- **Tenant isolation**: every vendor-scoped route runs through `attachTenantScope` +
-  `vendorScopeWhere`/`assertOwnsVendorRecord` (see `src/middleware/tenantScope.ts`).
-  A vendor's JWT never lets it read another vendor's rows, even by guessing IDs.
-- **RBAC**: role gate (`requireRole`) for coarse checks, `requirePermission` for the
-  fine-grained `role_permissions` / `user_permissions` model seeded in `prisma/seed.ts`.
-- **Event links**: `POST /api/events` auto-generates a unique `event_slug`
-  (`rahul-weds-priya`, colliding names get a short random suffix). The slug never
-  changes on rename — the public link, once shared, stays stable.
-- **Public API** (`src/modules/public/public.routes.ts`, no auth required):
-  - `GET /api/public/events/:slug` — full render payload (event/theme/branding/youtube/media)
-  - `POST /api/public/events/:slug/unlock` — password check for PRIVATE events
-  - `GET /api/public/events/:slug/share` — public URL + QR code + WhatsApp share link
-- **YouTube integration** (`src/modules/youtube/`): OAuth2 connect/callback flow,
-  access/refresh tokens encrypted at rest with AES-256-GCM (`src/utils/crypto.ts`),
-  and a `syncStreamStatuses()` job that polls YouTube and flips
-  `youtube_streams.status` → `events.status` (wire this into a cron, e.g.
-  `node-cron` or a scheduled Lambda/K8s CronJob hitting `POST /api/youtube/sync`).
-- **Audit logs**: mutating admin/vendor actions call `writeAuditLog()` — check
-  `GET /api/admin/audit-logs`.
-- **Wallet**: `creditWallet`/`debitWallet`/`refundWallet` in
-  `src/modules/wallet/wallet.service.ts` write balance + ledger row inside one
-  Prisma transaction, so they never drift apart.
-- **Payments**: `POST /api/payments/webhook/razorpay` verifies the HMAC signature
-  before trusting the payload, then credits the vendor wallet on `payment.captured`.
+- **Tenant isolation**: `attachTenantScope` + `vendorScopeWhere` / `assertOwnsVendorRecord`
+- **RBAC**: `requireRole` + fine-grained `permissions` / `role_permissions` / `user_permissions`
+- **Event slugs**: stable public links (`rahul-weds-priya`); rename does not change slug
+- **YouTube tokens**: AES-256-GCM encrypted at rest
+- **Wallet**: credit/debit/refund in a Mongo transaction (Atlas replica set)
 
-## 5. Extension points left intentionally unimplemented
-
-- `src/modules/media/media.controller.ts::getUploadUrl` — wire up
-  `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` using the `S3_*` env vars
-  to return real presigned upload URLs.
-- SMTP/OTP delivery (`auth.service.ts::requestPasswordReset`) — currently creates
-  the OTP row but doesn't send it; plug in your transactional email provider.
-- A scheduler to call `POST /api/youtube/sync` periodically (every 30–60s while
-  events are live is reasonable).
-
-## 6. Project layout
+## 5. Project layout
 
 ```
-prisma/schema.prisma       All tables (27 sections of the architecture doc)
-prisma/seed.ts              Permission catalogue, role defaults, theme categories, super admin
-src/app.ts / server.ts      Express app assembly + entry point
-src/config/                 env loading, Prisma client singleton
-src/middleware/             auth, RBAC, tenant isolation, audit log, error handler, validation
-src/utils/                  JWT, password hashing, AES-256-GCM crypto, slugs, CRUD factory
-src/modules/<name>/         *.routes.ts, *.controller.ts, *.service.ts (where needed), *.schema.ts
-src/routes/index.ts         mounts every module under /api/*
+src/
+  config/          env + mongo connection
+  models/          Mongoose schemas (collections)
+  middleware/      auth, RBAC, tenant, audit, validate
+  modules/         routes + controllers per domain
+  seed.ts          bootstrap data
+  server.ts        entry
 ```
