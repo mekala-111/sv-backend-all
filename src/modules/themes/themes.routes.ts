@@ -19,11 +19,12 @@ router.post("/categories", adminOnly, validateBody(createThemeCategorySchema), c
 router.get("/vendor-assigned", requireRole(UserRole.VENDOR), controller.listVendorThemes);
 router.get("/vendor-assigned/:vendorId", adminOnly, controller.listVendorThemes);
 
-router.get("/", anyTenant, controller.listThemes);
+router.get("/", adminOnly, controller.listThemes);
 router.post("/", adminOnly, validateBody(createThemeSchema), controller.createTheme);
 router.get("/:id", anyTenant, controller.getTheme);
 router.patch("/:id", adminOnly, validateBody(updateThemeSchema), controller.updateTheme);
 router.post("/:id/assign-vendor", adminOnly, validateBody(assignVendorSchema), controller.assignVendor);
+router.post("/:id/assign-all-vendors", adminOnly, controller.assignAllVendors);
 router.post("/:id/duplicate", adminOnly, controller.duplicateTheme);
 
 export default router;

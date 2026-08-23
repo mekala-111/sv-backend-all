@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { Request, Response } from "express";
-import { UserRole, UserStatus, VendorStatus, EventStatus, PaymentStatus } from "../../types/enums";
-import { User, Vendor, VendorWallet, Event, Customer, Payment } from "../../models";
+import { UserRole, UserStatus, VendorStatus, EventStatus, PaymentStatus, ThemeStatus } from "../../types/enums";
+import { User, Vendor, VendorWallet, Event, Customer, Payment, Theme, VendorTheme } from "../../models";
 import { hashPassword } from "../../utils/password";
 import { generateCode } from "../../utils/slug";
 import { ApiError, created, ok } from "../../utils/apiResponse";
@@ -68,6 +68,23 @@ export async function createVendor(req: Request, res: Response) {
   }
 
   await writeAuditLog(req, { action: "CREATE", module: "vendors", entityId: vendor._id, newData: vendor.toJSON() });
+
+  const themes = await Theme.find({ status: ThemeStatus.ACTIVE }).select("_id").lean();
+  if (themes.length) {
+    await VendorTheme.bulkWrite(
+      themes.map((t: { _id: string }) => ({
+        updateOne: {
+          filter: { vendorId: vendor._id, themeId: t._id },
+          update: {
+            $set: { isEnabled: true },
+            $setOnInsert: { vendorId: vendor._id, themeId: t._id, isEnabled: true, isDefault: false },
+          },
+          upsert: true,
+        },
+      }))
+    );
+  }
+
   return created(res, vendor.toJSON());
 }
 

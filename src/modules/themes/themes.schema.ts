@@ -6,6 +6,7 @@ export const createThemeSchema = z.object({
   previewImage: z.string().optional(),
   config: z.record(z.any()).default({}),
   status: z.enum(["ACTIVE", "INACTIVE", "DRAFT"]).optional(),
+  assignToAllVendors: z.boolean().optional(),
 });
 
 export const updateThemeSchema = createThemeSchema.partial();

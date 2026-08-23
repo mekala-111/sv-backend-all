@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import slugify from "slugify";
 import { nanoid } from "nanoid";
-import { ThemeStatus, UserRole } from "../../types/enums";
-import { Theme, ThemeCategory, VendorTheme } from "../../models";
+import { ThemeStatus, UserRole, VendorStatus } from "../../types/enums";
+import { Theme, ThemeCategory, VendorTheme, Vendor } from "../../models";
 import { ApiError, created, ok } from "../../utils/apiResponse";
 import { writeAuditLog } from "../../middleware/auditLog";
 import { serialize, serializeMany } from "../../utils/serialize";
@@ -54,9 +54,28 @@ export async function getTheme(req: Request, res: Response) {
   });
 }
 
+async function assignThemeToActiveVendors(themeId: string) {
+  const vendors = await Vendor.find({ status: VendorStatus.ACTIVE }).select("_id").lean();
+  if (!vendors.length) return;
+  await VendorTheme.bulkWrite(
+    vendors.map((v: { _id: string }) => ({
+      updateOne: {
+        filter: { vendorId: v._id, themeId },
+        update: {
+          $set: { isEnabled: true },
+          $setOnInsert: { vendorId: v._id, themeId, isEnabled: true, isDefault: false },
+        },
+        upsert: true,
+      },
+    }))
+  );
+}
+
 export async function createTheme(req: Request, res: Response) {
-  const slug = await uniqueThemeSlug(req.body.name);
-  const theme = await Theme.create({ ...req.body, slug, createdBy: req.auth?.userId });
+  const { assignToAllVendors: _assignToAllVendors, ...body } = req.body;
+  const slug = await uniqueThemeSlug(body.name);
+  const theme = await Theme.create({ ...body, slug, createdBy: req.auth?.userId });
+  await assignThemeToActiveVendors(String(theme._id));
   await writeAuditLog(req, { action: "CREATE", module: "themes", entityId: theme._id, newData: theme.toJSON() });
   return created(res, theme.toJSON());
 }
@@ -130,6 +149,19 @@ export async function assignVendor(req: Request, res: Response) {
   return ok(res, assignment.toJSON());
 }
 
+export async function assignAllVendors(req: Request, res: Response) {
+  const theme = await Theme.findById(req.params.id);
+  if (!theme) throw ApiError.notFound();
+  await assignThemeToActiveVendors(String(theme._id));
+  await writeAuditLog(req, {
+    action: "UPDATE",
+    module: "themes",
+    entityId: theme._id,
+    newData: { assignedToAllVendors: true },
+  });
+  return ok(res, { assigned: true });
+}
+
 /** Themes visible to the caller's vendor tenant (used by vendor-facing theme pickers). */
 export async function listVendorThemes(req: Request, res: Response) {
   const vendorId = req.params.vendorId ?? req.auth!.vendorId;
@@ -137,7 +169,7 @@ export async function listVendorThemes(req: Request, res: Response) {
 
   const assignments = await VendorTheme.find({ vendorId, isEnabled: true }).lean();
   const themeIds = assignments.map((a: { themeId: string }) => a.themeId);
-  const themes = await Theme.find({ _id: { $in: themeIds } }).lean();
+  const themes = await Theme.find({ _id: { $in: themeIds }, status: ThemeStatus.ACTIVE }).lean();
   const themeById = new Map(themes.map((t: { _id: string }) => [t._id, t]));
 
   return ok(
