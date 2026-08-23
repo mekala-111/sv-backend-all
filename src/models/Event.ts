@@ -46,6 +46,7 @@ const eventSchema = createSchema({
         date: { type: String, default: null },
         time: { type: String, default: null },
         place: { type: String, default: null },
+        image: { type: String, default: null },
       },
     ],
     default: [],

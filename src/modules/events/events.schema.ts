@@ -76,6 +76,7 @@ const optionalSubEvents = z.preprocess(
         date: z.string().max(80).optional().nullable(),
         time: z.string().max(80).optional().nullable(),
         place: z.string().max(200).optional().nullable(),
+        image: optionalImageRef,
       })
     )
     .max(20)
