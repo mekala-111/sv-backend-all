@@ -19,10 +19,17 @@ import { buildPublicEventUrl } from "../../utils/slug";
 import { env } from "../../config/env";
 import { verifyPassword } from "../../utils/password";
 import { serialize, serializeMany } from "../../utils/serialize";
+import { verifyEventPreviewToken } from "../../utils/jwt";
 
-async function loadPublicEventBundle(slugOrFilter: { eventSlug?: string; eventCode?: string }) {
+async function loadPublicEventBundle(
+  slugOrFilter: { eventSlug?: string; eventCode?: string },
+  opts: { previewEventId?: string | null } = {}
+) {
   const event = await Event.findOne(slugOrFilter).lean();
-  if (!event || !event.isPublished) return null;
+  if (!event) return null;
+  // Unpublished events are visible only through a valid preview link for that exact event.
+  const isPreview = !!opts.previewEventId && opts.previewEventId === String(event._id);
+  if (!event.isPublished && !isPreview) return null;
 
   const [theme, themeConfig, media, access, youtubeStreams, vendor] = await Promise.all([
     event.themeId ? Theme.findById(event.themeId).lean() : null,
@@ -60,8 +67,14 @@ function countView(event: { _id?: unknown; viewCount?: number }) {
  * requiring a follow-up password check before real content is exposed.
  */
 async function getPublicEvent(req: Request, res: Response) {
-  const event = await loadPublicEventBundle({ eventSlug: req.params.slug });
+  const previewEventId = verifyEventPreviewToken(req.query.previewToken);
+  const event = await loadPublicEventBundle({ eventSlug: req.params.slug }, { previewEventId });
   if (!event) throw ApiError.notFound("Event not found");
+
+  // The owner's preview link skips the PIN and isn't counted as a page view.
+  if (previewEventId === String(event._id)) {
+    return ok(res, buildPublicPayload(event));
+  }
 
   const isPrivate = event.access?.accessType === EventAccessType.PRIVATE && event.access.isEnabled;
 

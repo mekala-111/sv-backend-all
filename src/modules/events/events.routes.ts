@@ -24,6 +24,7 @@ router.delete("/:id", canManage, controller.deleteEvent);
 router.post("/:id/publish", canManage, controller.publishEvent);
 router.post("/:id/unpublish", canManage, controller.unpublishEvent);
 router.post("/:id/preview", canManage, controller.previewEvent);
+router.post("/:id/preview-token", canManage, controller.createPreviewToken);
 
 router.put("/:id/theme-config", canManage, validateBody(setEventThemeConfigSchema), controller.setEventThemeConfig);
 router.put("/:id/access", canManage, validateBody(setEventAccessSchema), controller.setEventAccess);

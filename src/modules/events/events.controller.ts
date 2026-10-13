@@ -19,6 +19,7 @@ import { env } from "../../config/env";
 import { hashPassword } from "../../utils/password";
 import { createNotification } from "../notifications/notifications.service";
 import { serialize, serializeMany } from "../../utils/serialize";
+import { PREVIEW_TOKEN_TTL_SECONDS, signEventPreviewToken } from "../../utils/jwt";
 
 export async function createEvent(req: Request, res: Response) {
   let vendorId = req.auth!.role === UserRole.VENDOR ? req.auth!.vendorId! : req.body.vendorId;
@@ -254,6 +255,18 @@ export async function previewEvent(req: Request, res: Response) {
       ? { companyName: vendor.companyName, whatsappNumber: vendor.whatsappNumber, whatsappEnabled: vendor.whatsappEnabled }
       : null,
   });
+}
+
+/** POST /events/:id/preview-token — a 2-hour link to the public page that works before publishing. */
+export async function createPreviewToken(req: Request, res: Response) {
+  const event = await Event.findById(req.params.id).select("vendorId eventSlug").lean();
+  if (!event) throw ApiError.notFound();
+  assertOwnsVendorRecord(req, event.vendorId);
+  if (!event.eventSlug) throw ApiError.badRequest("Set the event's domain name before previewing.");
+
+  const token = signEventPreviewToken(String(event._id));
+  const publicUrl = `${buildPublicEventUrl(env.publicEventBaseUrl, event.eventSlug)}?previewToken=${encodeURIComponent(token)}`;
+  return ok(res, { token, publicUrl, expiresInSeconds: PREVIEW_TOKEN_TTL_SECONDS });
 }
 
 export async function setEventThemeConfig(req: Request, res: Response) {
