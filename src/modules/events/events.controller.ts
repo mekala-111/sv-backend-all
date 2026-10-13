@@ -295,7 +295,8 @@ export async function setEventAccess(req: Request, res: Response) {
     { eventId: event._id },
     {
       $set: update,
-      $setOnInsert: { isEnabled: isEnabled ?? true },
+      // Only default isEnabled when this request doesn't set it (same path in both is a Mongo conflict).
+      ...(isEnabled === undefined ? { $setOnInsert: { isEnabled: true } } : {}),
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );

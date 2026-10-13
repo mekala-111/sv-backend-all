@@ -63,7 +63,8 @@ async function assignThemeToActiveVendors(themeId: string) {
         filter: { vendorId: v._id, themeId },
         update: {
           $set: { isEnabled: true },
-          $setOnInsert: { vendorId: v._id, themeId, isEnabled: true, isDefault: false },
+          // isEnabled is already in $set — repeating it here is a Mongo conflict (code 40).
+          $setOnInsert: { vendorId: v._id, themeId, isDefault: false },
         },
         upsert: true,
       },
@@ -129,11 +130,12 @@ export async function assignVendor(req: Request, res: Response) {
     { vendorId, themeId: theme._id },
     {
       $set: update,
+      // Only default the fields this request isn't setting — a path in both operators is a Mongo conflict.
       $setOnInsert: {
         vendorId,
         themeId: theme._id,
-        isEnabled: isEnabled ?? true,
-        isDefault: isDefault ?? false,
+        ...(isEnabled === undefined ? { isEnabled: true } : {}),
+        ...(isDefault === undefined ? { isDefault: false } : {}),
       },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }

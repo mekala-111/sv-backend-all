@@ -68,7 +68,8 @@ export async function createVendor(req: Request, res: Response) {
           filter: { vendorId: vendor._id, themeId: t._id },
           update: {
             $set: { isEnabled: true },
-            $setOnInsert: { vendorId: vendor._id, themeId: t._id, isEnabled: true, isDefault: false },
+            // isEnabled is already in $set — repeating it here is a Mongo conflict (code 40).
+            $setOnInsert: { vendorId: vendor._id, themeId: t._id, isDefault: false },
           },
           upsert: true,
         },
