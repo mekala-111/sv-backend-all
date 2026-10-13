@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { Request, Response } from "express";
 import { UserRole, UserStatus, VendorStatus, EventStatus, PaymentStatus, ThemeStatus } from "../../types/enums";
 import { User, Vendor, VendorWallet, Event, Customer, Payment, Theme, VendorTheme } from "../../models";
@@ -7,6 +6,7 @@ import { generateCode } from "../../utils/slug";
 import { ApiError, created, ok } from "../../utils/apiResponse";
 import { writeAuditLog } from "../../middleware/auditLog";
 import { serialize, serializeMany } from "../../utils/serialize";
+import { runInTransaction } from "../../utils/transaction";
 
 export async function createVendor(req: Request, res: Response) {
   const {
@@ -28,10 +28,7 @@ export async function createVendor(req: Request, res: Response) {
 
   const passwordHash = await hashPassword(password);
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  let vendor;
-  try {
+  const vendor = await runInTransaction(async (session) => {
     const [user] = await User.create(
       [{ name, email, phone, passwordHash, role: UserRole.VENDOR, status: UserStatus.ACTIVE }],
       { session }
@@ -58,14 +55,8 @@ export async function createVendor(req: Request, res: Response) {
       [{ vendorId: createdVendor._id, balance: Number(initialWalletCredit ?? 0) }],
       { session }
     );
-    vendor = createdVendor;
-    await session.commitTransaction();
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+    return createdVendor;
+  });
 
   await writeAuditLog(req, { action: "CREATE", module: "vendors", entityId: vendor._id, newData: vendor.toJSON() });
 

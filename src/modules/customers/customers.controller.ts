@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { Request, Response } from "express";
 import { UserRole, UserStatus } from "../../types/enums";
 import { User, Customer, Event } from "../../models";
@@ -8,6 +7,7 @@ import { ApiError, created, ok } from "../../utils/apiResponse";
 import { vendorScopeWhere, assertOwnsVendorRecord } from "../../middleware/tenantScope";
 import { writeAuditLog } from "../../middleware/auditLog";
 import { serialize, serializeMany } from "../../utils/serialize";
+import { runInTransaction } from "../../utils/transaction";
 
 export async function createCustomer(req: Request, res: Response) {
   const { name, email, password, phone } = req.body;
@@ -19,10 +19,7 @@ export async function createCustomer(req: Request, res: Response) {
 
   const passwordHash = await hashPassword(password);
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  let customer;
-  try {
+  const customer = await runInTransaction(async (session) => {
     const [user] = await User.create(
       [{ name, email, phone, passwordHash, role: UserRole.CUSTOMER, status: UserStatus.ACTIVE }],
       { session }
@@ -31,14 +28,8 @@ export async function createCustomer(req: Request, res: Response) {
       [{ userId: user._id, vendorId, customerCode: generateCode("CUS"), name, phone, email }],
       { session }
     );
-    customer = created;
-    await session.commitTransaction();
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+    return created;
+  });
 
   await writeAuditLog(req, { action: "CREATE", module: "customers", entityId: customer._id, newData: customer.toJSON() });
   return created(res, customer.toJSON());

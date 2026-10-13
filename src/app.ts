@@ -11,10 +11,11 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 export function createApp() {
   const app = express();
 
+  app.set("trust proxy", 1); // behind nginx/aaPanel — use the real client IP from X-Forwarded-For
   app.use(helmet());
   app.use(
     cors({
-      origin: true, // reflect request origin; tighten to an allow-list of vendor/admin/public frontends in production
+      origin: env.corsOrigins.length ? env.corsOrigins : true,
       credentials: true,
     })
   );

@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { nanoid } from "nanoid";
 import { UserRole, UserStatus, OtpPurpose } from "../../types/enums";
 import { User, Vendor, Customer, RefreshToken, OtpCode } from "../../models";
@@ -8,6 +7,7 @@ import { sha256Hex } from "../../utils/crypto";
 import { generateCode } from "../../utils/slug";
 import { ApiError } from "../../utils/apiResponse";
 import { env } from "../../config/env";
+import { runInTransaction } from "../../utils/transaction";
 
 function refreshExpiryDate(): Date {
   // JWT_REFRESH_EXPIRES_IN is a duration string like "30d"; keep DB expiry in sync loosely (30d default).
@@ -161,21 +161,13 @@ export async function resetPassword(email: string, code: string, newPassword: st
   }).sort({ createdAt: -1 });
   if (!otp) throw ApiError.badRequest("Invalid or expired code");
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  await runInTransaction(async (session) => {
     otp.consumed = true;
     await otp.save({ session });
     user.passwordHash = await hashPassword(newPassword);
     await user.save({ session });
     await RefreshToken.updateMany({ userId: user._id, revoked: false }, { revoked: true }, { session });
-    await session.commitTransaction();
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 }
 
 export async function verifyOtp(email: string, code: string, purpose: "PHONE_VERIFY" | "EMAIL_VERIFY" | "LOGIN") {

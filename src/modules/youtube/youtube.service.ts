@@ -1,10 +1,10 @@
-import mongoose from "mongoose";
 import { google } from "googleapis";
 import { YoutubeStreamStatus, YoutubeChannelStatus, EventStatus } from "../../types/enums";
 import { env } from "../../config/env";
 import { YoutubeChannel, YoutubeStream, Event } from "../../models";
 import { encryptSecret, decryptSecret } from "../../utils/crypto";
 import { ApiError } from "../../utils/apiResponse";
+import { runInTransaction } from "../../utils/transaction";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/youtube",
@@ -127,9 +127,7 @@ export async function syncStreamStatuses(eventId?: string) {
       else if (hasEnded) status = YoutubeStreamStatus.ENDED;
       else if (lifeCycle === "failed" || lifeCycle === "rejected") status = YoutubeStreamStatus.ERROR;
 
-      const session = await mongoose.startSession();
-      session.startTransaction();
-      try {
+      await runInTransaction(async (session) => {
         stream.status = status;
         if (video?.liveStreamingDetails?.actualStartTime) {
           stream.startedAt = new Date(video.liveStreamingDetails.actualStartTime);
@@ -143,13 +141,7 @@ export async function syncStreamStatuses(eventId?: string) {
         else if (status === YoutubeStreamStatus.ENDED) event.status = EventStatus.COMPLETED;
         await event.save({ session });
 
-        await session.commitTransaction();
-      } catch (err) {
-        await session.abortTransaction();
-        throw err;
-      } finally {
-        session.endSession();
-      }
+      });
 
       results.push({ streamId: stream._id, status });
     } catch (err) {

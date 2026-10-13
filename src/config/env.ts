@@ -10,6 +10,16 @@ function required(key: string, fallback?: string): string {
   return value;
 }
 
+/** Signing/encryption keys: the dev fallbacks are public (they're in this repo), so production must set its own. */
+function secret(key: string, devFallback: string): string {
+  const value = process.env[key];
+  if (value) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(`Missing required environment variable in production: ${key}`);
+  }
+  return devFallback;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 5161),
@@ -23,16 +33,22 @@ export const env = {
   ),
 
   jwt: {
-    accessSecret: required("JWT_ACCESS_SECRET", "dev_access_secret_change_me_32chars_min"),
-    refreshSecret: required("JWT_REFRESH_SECRET", "dev_refresh_secret_change_me_32chars_min"),
+    accessSecret: secret("JWT_ACCESS_SECRET", "dev_access_secret_change_me_32chars_min"),
+    refreshSecret: secret("JWT_REFRESH_SECRET", "dev_refresh_secret_change_me_32chars_min"),
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? "15m",
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? "30d",
   },
 
-  tokenEncryptionKey: required(
+  tokenEncryptionKey: secret(
     "TOKEN_ENCRYPTION_KEY",
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   ),
+
+  /** Comma-separated browser origins allowed to call the API; empty = reflect any origin. */
+  corsOrigins: (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean),
 
   otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES ?? 10),
 

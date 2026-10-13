@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { WalletTxnType } from "../../types/enums";
 import { VendorWallet, WalletTransaction, PlatformWallet, PlatformLedger } from "../../models";
 import { ApiError } from "../../utils/apiResponse";
+import { runInTransaction } from "../../utils/transaction";
 
 async function getOrCreateWallet(vendorId: string, session?: mongoose.ClientSession) {
   const opts = session ? { session } : {};
@@ -33,9 +34,7 @@ export async function creditWallet(
 ) {
   if (amount <= 0) throw ApiError.badRequest("Credit amount must be positive");
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  return runInTransaction(async (session) => {
     const wallet = await getOrCreateWallet(vendorId, session);
     wallet.balance = Number(wallet.balance) + amount;
     await wallet.save({ session });
@@ -52,14 +51,8 @@ export async function creditWallet(
       ],
       { session }
     );
-    await session.commitTransaction();
     return wallet;
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 }
 
 /** Debits a vendor's wallet — throws if the balance would go negative. */
@@ -72,9 +65,7 @@ export async function debitWallet(
 ) {
   if (amount <= 0) throw ApiError.badRequest("Debit amount must be positive");
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  return runInTransaction(async (session) => {
     const wallet = await getOrCreateWallet(vendorId, session);
     if (Number(wallet.balance) < amount) throw ApiError.badRequest("Insufficient wallet balance");
 
@@ -93,14 +84,8 @@ export async function debitWallet(
       ],
       { session }
     );
-    await session.commitTransaction();
     return wallet;
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 }
 
 export async function refundWallet(
@@ -110,9 +95,7 @@ export async function refundWallet(
   referenceId?: string,
   description?: string
 ) {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  return runInTransaction(async (session) => {
     const wallet = await getOrCreateWallet(vendorId, session);
     wallet.balance = Number(wallet.balance) + amount;
     await wallet.save({ session });
@@ -129,14 +112,8 @@ export async function refundWallet(
       ],
       { session }
     );
-    await session.commitTransaction();
     return wallet;
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 }
 
 /** Credits the admin/platform wallet (event creation fees). */
@@ -151,9 +128,7 @@ export async function creditPlatform(
 ) {
   if (amount <= 0) throw ApiError.badRequest("Credit amount must be positive");
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  try {
+  return runInTransaction(async (session) => {
     const wallet = await getOrCreatePlatformWallet(session);
     wallet.balance = Number(wallet.balance) + amount;
     await wallet.save({ session });
@@ -170,14 +145,8 @@ export async function creditPlatform(
       ],
       { session }
     );
-    await session.commitTransaction();
     return wallet;
-  } catch (err) {
-    await session.abortTransaction();
-    throw err;
-  } finally {
-    session.endSession();
-  }
+  });
 }
 
 export async function getPlatformWallet() {
