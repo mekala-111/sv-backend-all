@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "seed": "ts-node --transpile-only src/seed.ts",
-    "seed:banner-themes": "ts-node --transpile-only scripts/seed-banner-themes.ts"
+    "seed:banner-themes": "ts-node --transpile-only scripts/seed-banner-themes.ts",
+    "themes:showcase": "ts-node --transpile-only scripts/apply-showcase-themes.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
