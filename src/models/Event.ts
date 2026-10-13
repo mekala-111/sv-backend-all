@@ -21,6 +21,8 @@ const eventSchema = createSchema({
   metaTitle: { type: String, default: null },
   metaDescription: { type: String, default: null },
   liveTiming: { type: String, default: null },
+  /** Public page views (incremented by the public event endpoints). */
+  viewCount: { type: Number, default: 0 },
   status: { type: String, enum: Object.values(EventStatus), default: EventStatus.DRAFT, index: true },
   themeId: { type: String, default: null },
   youtubeChannelId: { type: String, default: null },

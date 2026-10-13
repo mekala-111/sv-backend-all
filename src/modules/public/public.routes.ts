@@ -44,6 +44,14 @@ async function loadPublicEventBundle(slugOrFilter: { eventSlug?: string; eventCo
   };
 }
 
+/** Counts one page view without delaying the response; the payload shows the new total. */
+function countView(event: { _id?: unknown; viewCount?: number }) {
+  event.viewCount = Number(event.viewCount ?? 0) + 1;
+  Event.updateOne({ _id: event._id }, { $inc: { viewCount: 1 } }).catch(() => {
+    /* a missed count must never break the page */
+  });
+}
+
 /**
  * GET /api/public/events/:slug
  * Returns { event, theme, branding, youtube, media } — exactly what the
@@ -65,6 +73,7 @@ async function getPublicEvent(req: Request, res: Response) {
     });
   }
 
+  countView(event);
   return ok(res, buildPublicPayload(event));
 }
 
@@ -80,6 +89,7 @@ async function unlockPrivateEvent(req: Request, res: Response) {
   const valid = await verifyPassword(password, event.access.passwordHash);
   if (!valid) throw ApiError.unauthorized("Incorrect password");
 
+  countView(event);
   return ok(res, buildPublicPayload(event));
 }
 
@@ -177,6 +187,7 @@ async function watchByCode(req: Request, res: Response) {
     });
   }
 
+  countView(event);
   return ok(res, buildPublicPayload(event));
 }
 
@@ -257,6 +268,7 @@ function buildPublicPayload(event: any) {
       coverImage: event.themeConfig?.coverImage ?? event.coverImage,
       pageTitle: event.themeConfig?.pageTitle ?? event.pageTitle,
       liveTiming: event.themeConfig?.liveTiming ?? event.liveTiming,
+      viewCount: Number(event.viewCount ?? 0),
       status: event.status,
       scrollMessage: event.scrollMessage ?? null,
       teaserUrl: event.teaserUrl ?? null,
